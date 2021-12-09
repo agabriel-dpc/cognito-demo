@@ -2,40 +2,54 @@ import argparse
 import json
 import sys
 from getpass import getpass
+from loguru import logger
 
 import boto3
 from qrcode import QRCode
+import hashlib
+import hmac
+import base64
 
 cognito_client = boto3.client('cognito-idp')
 
+def secret_hash(username,client_secret,client_id):
 
-def auth_req(client_id, username, password):
+    # convert str to bytes
+    key = bytes(client_secret, 'latin-1')  
+    msg = bytes(username + client_id, 'latin-1')  
+    
+    new_digest = hmac.new(key, msg, hashlib.sha256).digest()
+    return base64.b64encode(new_digest).decode()
+
+def auth_req(client_secret, client_id, username, password):
+    logger.info(f'authenticate: {client_id}: {username}/{password}')
     return cognito_client.initiate_auth(
         AuthFlow='USER_PASSWORD_AUTH',
-        AuthParameters={'USERNAME': username, 'PASSWORD': password},
+        AuthParameters={'USERNAME': username, 'PASSWORD': password, 'SECRET_HASH' : secret_hash(username,client_secret,client_id)},
         ClientId=client_id
     )
 
 
-def authenticate(client_id, username):
+def authenticate(client_secret, client_id, username):
     response = None
     password = None
     while not response:
         try:
             password = getpass()
-            response = auth_req(client_id, username, password)
-        except cognito_client.exceptions.NotAuthorizedException:
+            response = auth_req(client_secret, client_id, username, password)
+        except cognito_client.exceptions.NotAuthorizedException as e:
+            logger.error(e)
             print('Incorrect password, please try again.')
             pass
         except cognito_client.exceptions.PasswordResetRequiredException:
             print('You need to reset your password.')
-            password = forgot_password_flow(client_id, username)
-            response = auth_req(client_id, username, password)
+            password = forgot_password_flow(client_secret, client_id, username)
+            response = auth_req(client_secret, client_id, username, password)
 
     return response, password
 
 
-def forgot_password_flow(client_id, username):
+def forgot_password_flow(client_secret, client_id, username):
     response = cognito_client.forgot_password(
         ClientId=client_id,
         Username=username
@@ -60,7 +74,7 @@ def forgot_password_flow(client_id, username):
     return confirmed_password
 
 
-def second_factor_auth(client_id, username, challenge_name, session):
+def second_factor_auth(client_secret, client_id, username, challenge_name, session):
     response = None
     while not response:
         try:
@@ -71,7 +85,8 @@ def second_factor_auth(client_id, username, challenge_name, session):
                 ClientId=client_id,
                 ChallengeResponses={
                     'USERNAME': username,
-                    f'{challenge_name}_CODE': mfa_code
+                    f'{challenge_name}_CODE': mfa_code,
+                    'SECRET_HASH' : secret_hash(username,client_secret,client_id)
                 })
         except cognito_client.exceptions.CodeMismatchException:
             print('Incorrect code, please try again.')
@@ -88,7 +103,7 @@ def second_factor_auth(client_id, username, challenge_name, session):
     return response
 
 
-def totp_setup(session, client_id, username, password):
+def totp_setup(session, client_secret, client_id, username, password):
     response = cognito_client.associate_software_token(Session=session)
     secret = response['SecretCode']
     qr_uri = f'otpauth://totp/Cognito:{username}?secret={secret}&issuer=Cognito'
@@ -107,7 +122,7 @@ def totp_setup(session, client_id, username, password):
         print(f'Failed to verify MFA: {json.dumps(auth_response)}')
         sys.exit(1)
 
-    token_response = auth_req(client_id, username, password)
+    token_response = auth_req(client_secret, client_id, username, password)
 
     cognito_client.set_user_mfa_preference(
         SoftwareTokenMfaSettings={
@@ -125,19 +140,26 @@ def print_auth_result(response):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('client_id', type=str)
-    parser.add_argument('username', type=str)
+    parser = argparse.ArgumentParser(description='Connect Cognito and authenticate with MFA', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('-s','--client-secret', type=str)
+    parser.add_argument('-c','--client-id', type=str)
+    parser.add_argument('-u','--username', type=str)
     args = parser.parse_args()
 
-    auth_response, password = authenticate(args.client_id, args.username)
+    logger.info(args)
+    exit
+
+
+    logger.info("starting authentication...")
+    auth_response, password = authenticate(args.client_secret, args.client_id, args.username)
+    logger.info(f'response: {auth_response}')
 
     challenge_name = auth_response.get('ChallengeName')
     if challenge_name in ['SOFTWARE_TOKEN_MFA', 'SMS_MFA']:
-        token_response = second_factor_auth(args.client_id, args.username, challenge_name, auth_response['Session'])
+        token_response = second_factor_auth(args.client_secret, args.client_id, args.username, challenge_name, auth_response['Session'])
         print_auth_result(token_response)
     elif challenge_name == 'MFA_SETUP':
-        token_response = totp_setup(auth_response['Session'], args.client_id, args.username, password)
+        token_response = totp_setup(auth_response['Session'], args.client_secret, args.client_id, args.username, password)
         print_auth_result(token_response)
     elif 'AuthenticationResult' in auth_response:
         print_auth_result(auth_response)
