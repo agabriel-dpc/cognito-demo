@@ -39,10 +39,9 @@ def authenticate(client_secret, client_id, username):
             response = auth_req(client_secret, client_id, username, password)
         except cognito_client.exceptions.NotAuthorizedException as e:
             logger.error(e)
-            print('Incorrect password, please try again.')
             pass
         except cognito_client.exceptions.PasswordResetRequiredException:
-            print('You need to reset your password.')
+            logger.error('You need to reset your password.')
             password = forgot_password_flow(client_secret, client_id, username)
             response = auth_req(client_secret, client_id, username, password)
 
@@ -54,7 +53,7 @@ def forgot_password_flow(client_secret, client_id, username):
         ClientId=client_id,
         Username=username
     )
-    print(json.dumps(response['CodeDeliveryDetails']))
+    logger.info(json.dumps(response['CodeDeliveryDetails']))
     confirmation_code = input('Enter the confirmation code: ')
 
     password_ok = False
@@ -70,7 +69,7 @@ def forgot_password_flow(client_secret, client_id, username):
         ConfirmationCode=confirmation_code,
         Password=confirmed_password
     )
-    print('Password successfully changed')
+    logger.info('Password successfully changed')
     return confirmed_password
 
 
@@ -89,7 +88,7 @@ def second_factor_auth(client_secret, client_id, username, challenge_name, sessi
                     'SECRET_HASH' : secret_hash(username,client_secret,client_id)
                 })
         except cognito_client.exceptions.CodeMismatchException:
-            print('Incorrect code, please try again.')
+            logger.error('Incorrect code, please try again.')
             pass
 
     cognito_client.set_user_mfa_preference(
@@ -119,7 +118,7 @@ def totp_setup(session, client_secret, client_id, username, password):
     )
 
     if response['Status'] != 'SUCCESS':
-        print(f'Failed to verify MFA: {json.dumps(auth_response)}')
+        logger.info(f'Failed to verify MFA: {json.dumps(auth_response)}')
         sys.exit(1)
 
     token_response = auth_req(client_secret, client_id, username, password)
@@ -136,7 +135,7 @@ def totp_setup(session, client_secret, client_id, username, password):
 
 
 def print_auth_result(response):
-    print(json.dumps(response['AuthenticationResult'], indent=2))
+    logger.info(json.dumps(response['AuthenticationResult'], indent=2))
 
 
 if __name__ == '__main__':
@@ -161,8 +160,10 @@ if __name__ == '__main__':
     elif challenge_name == 'MFA_SETUP':
         token_response = totp_setup(auth_response['Session'], args.client_secret, args.client_id, args.username, password)
         print_auth_result(token_response)
+    elif challenge_name == 'NEW_PASSWORD_REQUIRED':
+        logger.debug('NEW_PASSWORD_REQUIRED')
     elif 'AuthenticationResult' in auth_response:
         print_auth_result(auth_response)
     else:
-        print(f'Unknown response from Cognito: {json.dumps(auth_response)}')
+        logger.error(f'Unknown response from Cognito: {json.dumps(auth_response)}')
         sys.exit(1)
