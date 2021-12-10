@@ -37,6 +37,7 @@ def authenticate(client_secret, client_id, username):
         try:
             password = getpass()
             response = auth_req(client_secret, client_id, username, password)
+            logger.debug(f'auth_req response: {response}')
         except cognito_client.exceptions.NotAuthorizedException as e:
             logger.error(e)
             pass
@@ -144,10 +145,6 @@ if __name__ == '__main__':
     parser.add_argument('-c','--client-id', type=str)
     parser.add_argument('-u','--username', type=str)
     args = parser.parse_args()
-
-    logger.info(args)
-    exit
-
 
     logger.info("starting authentication...")
     auth_response, password = authenticate(args.client_secret, args.client_id, args.username)
