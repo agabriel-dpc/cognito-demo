@@ -4,8 +4,13 @@ from dataclasses import dataclass
 import boto3
 from boto3 import Session
 
+from loguru import logger
+
+bsess = boto3.Session(region_name='eu-central-1')
+credentials = bsess.get_credentials() #boto3 credentials, no
 cognito_client = boto3.client('cognito-identity')
 
+# get credentials based on ec2 instance role
 
 @dataclass
 class AwsCredentials:
@@ -16,6 +21,7 @@ class AwsCredentials:
 
 class AwsAccesser:
     def __init__(self, aws_account_id, identity_pool_id, provider_name):
+        logger.debug('AwsAccesser account_id:'+aws_account_id+' identity_pool_id:'+identity_pool_id +' provider_name:'+provider_name)
         self._aws_account_id = aws_account_id
         self._identity_pool_id = identity_pool_id
         self.provider_name = provider_name

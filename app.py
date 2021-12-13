@@ -1,22 +1,39 @@
 import dataclasses
-import logging
 
 import boto3
 import botocore
 import flask
-from flask import Flask, request, redirect, render_template, url_for
+from flask import Flask, request, redirect, render_template, url_for, jsonify 
 from flask_pyoidc import OIDCAuthentication
 from flask_pyoidc.provider_configuration import ProviderConfiguration, ProviderMetadata, ClientMetadata
 from flask_pyoidc.user_session import UserSession
+
+from flask_session import Session
+from requests.sessions import session
 
 from cognitodemo import s3
 from cognitodemo.access import AwsAccesser
 from cognitodemo.mfa import get_mfa_challenge, verify_mfa_challenge, user_has_software_token_mfa
 
+from loguru import logger
+import hashlib
+import hmac
+import base64
+
 app = Flask(__name__)
 
 app.config.from_envvar('COGNITO_DEMO_SETTINGS')
-app.config.update({'OIDC_REDIRECT_URI': 'http://localhost:5000/redirect_uri',
+
+app.config["SESSION_PERMANENT"] = False
+app.config["SESSION_TYPE"] = "filesystem"
+app.config["SECRET_KEY"] = "super secret key"
+
+Session(app) # use filesystem for session storage
+
+logger.debug("session data: ")
+logger.debug(session)
+
+app.config.update({'OIDC_REDIRECT_URI': 'https://dev-rina-cognito.central.tech/redirect_uri',
                    'DEBUG': True})
 
 issuer = f'https://{app.config["PROVIDER_NAME"]}'
@@ -32,14 +49,68 @@ cognito_config = ProviderConfiguration(
         'scope': ['openid', 'aws.cognito.signin.user.admin']  # scope required to update MFA for logged-in user
     }
 )
-auth = OIDCAuthentication({'cognito': cognito_config})
+auth = OIDCAuthentication({'cognito': cognito_config},app=app)
+logger.debug(cognito_config._provider_metadata)
+
+auth.init_app(app) # nem biztos hogy kell
+logger.debug("after init_app")
 
 aws_accesser = AwsAccesser(app.config['AWS_ACCOUNT_ID'], app.config['IDENTITY_POOL_ID'], app.config['PROVIDER_NAME'])
+logger.debug('after aws_accesser')
+
+@app.route('/status')
+def status():
+    return "OK"
+
+@auth.error_view
+def error(error=None, error_description=None):
+ return jsonify({'error': error, 'message': error_description})
+
+@app.route('/test')
+def test():
+    logger.debug('in test')
+    user_session = UserSession(flask.session)
+
+    act = user_session.access_token
+    idt = user_session.id_token
+    uin = user_session.userinfo
+
+    logger.debug('act: ')
+    logger.debug(act)
+    logger.debug('idt: ')
+    logger.debug(idt)
+    logger.debug('uin: ')
+    logger.debug(uin)
+
+    return jsonify(access_token=user_session.access_token,
+                   id_token=user_session.id_token,
+                   userinfo=user_session.userinfo)
+    
+@app.route('/logout', methods=['GET'])
+@auth.oidc_logout
+def logout():
+    logger.debug('in logout')
+    session = UserSession(flask.session,'cognito') # add provider to avoid flask_pyoidc.user_session.UninitialisedSession: Trying to pick-up uninitialised session without specifying 'provider_name'
+    session.clear()
+    return "successful logout"
+
+@app.route('/login')
+@auth.oidc_auth('cognito')
+def login():
+    app.logger.debug("in index")
+    user_session = UserSession(flask.session)
+    return ('login successful')
+
+# @app.after_request
+# def after_request(response):
+#     logger.debug(f'BIIG data: {response.get_data()}')
+#     return (response)
 
 
 @app.route('/')
 @auth.oidc_auth('cognito')
 def index():
+    app.logger.debug("in index")
     user_session = UserSession(flask.session)
 
     if not user_has_software_token_mfa(user_session.access_token):
@@ -64,6 +135,11 @@ def index():
         s3_bucket=app.config['S3_BUCKET_NAME'],
         s3_bucket_content=bucket_content
     )
+
+# @app.route('/redirect_uri')
+# @auth.oidc_auth('cognito')
+# def redirect_uri():
+#     return index()
 
 
 @app.route('/switch-role', methods=['POST'])
@@ -120,6 +196,5 @@ def verify_mfa():
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    auth.init_app(app)
+    logger.configure(level=logger.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     app.run()
