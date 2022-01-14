@@ -69,7 +69,7 @@ def error(error=None, error_description=None):
 @app.route('/test')
 def test():
     logger.debug('in test')
-    user_session = UserSession(flask.session)
+    user_session = UserSession(flask.session,'cognito')
 
     act = user_session.access_token
     idt = user_session.id_token
@@ -92,14 +92,15 @@ def logout():
     logger.debug('in logout')
     session = UserSession(flask.session,'cognito') # add provider to avoid flask_pyoidc.user_session.UninitialisedSession: Trying to pick-up uninitialised session without specifying 'provider_name'
     session.clear()
-    return "successful logout"
+
+    return redirect(url_for('test'), code=303)
 
 @app.route('/login')
 @auth.oidc_auth('cognito')
 def login():
     app.logger.debug("in index")
     user_session = UserSession(flask.session)
-    return ('login successful')
+    return redirect(url_for('test'), code=303)
 
 # @app.after_request
 # def after_request(response):
