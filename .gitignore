@@ -6,3 +6,4 @@ settings.local.cfg
 env.sh
 Pipfile.lock
 flask_session
+settings.local_secret.cfg
