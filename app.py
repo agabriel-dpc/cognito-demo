@@ -112,11 +112,17 @@ def login():
 def index():
     app.logger.debug("in index")
     user_session = UserSession(flask.session)
-
-    if not user_has_software_token_mfa(user_session.access_token):
-        challenge = get_mfa_challenge(user_session.access_token)
-        flask.session['mfa-challenge'] = challenge
-        return redirect(url_for('verify_mfa'), code=303)
+    try:
+        if not user_has_software_token_mfa(user_session.access_token):
+            challenge = get_mfa_challenge(user_session.access_token)
+            flask.session['mfa-challenge'] = challenge
+            return redirect(url_for('verify_mfa'), code=303)
+    except:
+        #TODO: more specific exception handling
+        #TODO: auto-reload page, maybe html template + js reload
+        user_session.clear()
+        return "Session expired, please reload the page to log in again."
+        #return redirect(url_for('/'))
 
     bucket_content = []
     if 'aws-credentials' in flask.session:
@@ -184,11 +190,11 @@ def verify_mfa():
 
     user_code = request.form['code']
     if len(user_code) != 6:
-        flask.flash('Code must be 6 chars.')
+        flask.flash('Code must be 6 chars.','error')
         return show_mfa(user_session, mfa_challenge)
 
     if not verify_mfa_challenge(user_session.access_token, user_code):
-        flask.flash('MFA verification failed, please try again.')
+        flask.flash('MFA verification failed, please try again.','error')
         return show_mfa(user_session, mfa_challenge)
 
     del flask.session['mfa-challenge']
