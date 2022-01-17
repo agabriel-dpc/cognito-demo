@@ -176,7 +176,7 @@ def switch_role():
 @app.route('/verify-mfa', methods=['GET', 'POST'])
 def verify_mfa():
     def show_mfa(user_session, code):
-        service_name = 'Cognito demo'
+        service_name = app.config['QR_SERVICE_NAME']
         user_email = user_session.id_token['cognito:username']
         qr_uri = f'otpauth://totp/{service_name}:{user_email}?secret={code}&issuer={service_name}'
         return render_template('verify-mfa.html', secret=code, qr_uri=qr_uri)
