@@ -1,3 +1,4 @@
+from crypt import methods
 import dataclasses
 
 import boto3
@@ -11,7 +12,6 @@ from flask_pyoidc.user_session import UserSession
 from flask_session import Session
 from requests.sessions import session
 
-from cognitodemo import s3
 from cognitodemo.access import AwsAccesser
 from cognitodemo.mfa import get_mfa_challenge, verify_mfa_challenge, user_has_software_token_mfa
 
@@ -19,6 +19,8 @@ from loguru import logger
 import hashlib
 import hmac
 import base64
+import os
+from flask import send_from_directory
 
 app = Flask(__name__)
 
@@ -102,12 +104,6 @@ def login():
     user_session = UserSession(flask.session)
     return redirect(url_for('test'), code=303)
 
-# @app.after_request
-# def after_request(response):
-#     logger.debug(f'BIIG data: {response.get_data()}')
-#     return (response)
-
-
 @app.route('/')
 @auth.oidc_auth('cognito')
 def index():
@@ -125,59 +121,19 @@ def index():
         return "Session expired, please reload the page to log in again."
         #return redirect(url_for('/'))
 
-    bucket_content = []
-    if 'aws-credentials' in flask.session:
-        session = boto3.Session(**flask.session['aws-credentials'])
-        bucket_prefix = app.config['S3_PREFIX_PER_ROLE'].get(flask.session.get('aws-role', None))
-        try:
-            bucket_content = [obj.key for obj in s3.list_bucket(session, app.config['S3_BUCKET_NAME'], bucket_prefix)]
-        except botocore.exceptions.ClientError as error:
-            flask.flash('You don\'t have access')
-
     return render_template(
         'index.html',
+        kibana_url=app.config['KIBANA_URL'],
         user_groups=user_session.id_token.get('cognito:groups', []),
         user_roles=user_session.id_token.get('cognito:roles', []),
-        current_role=flask.session.get('aws-role'),
-        s3_bucket=app.config['S3_BUCKET_NAME'],
-        s3_bucket_content=bucket_content
+        current_role=flask.session.get('aws-role')
     )
-
-# @app.route('/redirect_uri')
-# @auth.oidc_auth('cognito')
-# def redirect_uri():
-#     return index()
-
-
-@app.route('/switch-role', methods=['POST'])
-def switch_role():
-    requested_role = request.form['role']
-
-    if not requested_role:
-        if 'aws-credentials' in flask.session:
-            del flask.session['aws-credentials']
-            del flask.session['aws-role']
-            flask.flash('No role assumed')
-        return redirect(url_for('index'), code=303)
-
-    user_session = UserSession(flask.session)
-    if requested_role not in user_session.id_token.get('cognito:roles', []):
-        flask.flash(f'Failed to switch role')
-        return redirect(url_for('index'), code=303)
-
-    aws_credentials = aws_accesser.get_credentials(user_session.id_token_jwt, requested_role)
-    flask.session['aws-credentials'] = dataclasses.asdict(aws_credentials)
-    flask.session['aws-role'] = requested_role
-
-    flask.flash(f'Switched role to {requested_role}')
-    return redirect(url_for('index'), code=303)
-
 
 @app.route('/verify-mfa', methods=['GET', 'POST'])
 def verify_mfa():
     def show_mfa(user_session, code):
         service_name = app.config['QR_SERVICE_NAME']
-        user_email = user_session.id_token['cognito:username']
+        user_email = user_session.id_token['email']
         qr_uri = f'otpauth://totp/{service_name}:{user_email}?secret={code}&issuer={service_name}'
         return render_template('verify-mfa.html', secret=code, qr_uri=qr_uri)
 
@@ -200,6 +156,11 @@ def verify_mfa():
 
     del flask.session['mfa-challenge']
     return redirect(url_for('index'), code=303)
+
+@app.route('/favicon.ico', methods=['GET'])
+def favicon():
+    return send_from_directory(os.path.join(app.root_path, 'static'),
+                          'favicon.ico',mimetype='image/vnd.microsoft.icon')
 
 
 if __name__ == '__main__':

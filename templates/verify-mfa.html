@@ -7,18 +7,21 @@
 
 <div>
     To configure MFA for your account, please scan the QR code below using your authenticator app
-
+    <p/>
     <div id="qrcode"></div>
     <script type="text/javascript">
         new QRCode(document.getElementById("qrcode"), "{{ qr_uri }}");
     </script>
-
+    <br/>
     or manually enter the following code: {{ secret }}
 </div>
+<br/>
 
 <form method="POST">
     <label for="code">Enter generated code:</label>
     <input id="code" name="code" maxlength="6" minlength="6">
+    <br/>
+    <br/>
     <button type="submit">Submit</button>
 </form>
 

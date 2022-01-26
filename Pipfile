@@ -10,6 +10,8 @@ flask = "*"
 flask-pyoidc = "*"
 boto3 = "*"
 qrcode = "*"
+loguru = "*"
+flask_session = "*"
 
 [requires]
 python_version = "3"

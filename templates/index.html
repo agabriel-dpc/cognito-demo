@@ -2,30 +2,15 @@
 
 {% block content %}
 
-<h2>Groups</h2>
+<h2>MFA setup done</h2>
+
+<h3>Groups</h3>
 <ul>
     {% for group in user_groups %}
     <li>{{ group }}</li>
     {% endfor %}
 </ul>
 
-<h2>Roles</h2>
-<form method="POST" action="/switch-role">
-    <select name="role" onchange="this.form.submit()">
-        <option value="" {% if not current_role %}selected{% endif %}>--no role--</option>
-        {% for role in user_roles %}
-        <option value="{{ role }}" {% if role==current_role %}selected{% endif %}>{{ role }}</option>
-        {% endfor %}
-    </select>
-</form>
-
-<h2>S3</h2>
-{{ s3_bucket }}:
-<ul>
-    {% for file in s3_bucket_content %}
-    <li>{{ file }}</li>
-    {% endfor %}
-</ul>
-
+<a href="{{kibana_url}}">Go to Kibana</a>
 
 {% endblock %}
